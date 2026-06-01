@@ -9,7 +9,7 @@
 
 ```bash
 # 1. 克隆本仓库
-git clone https://github.com/YOUR_USERNAME/freellmapi-docker.git
+git clone https://github.com/YOUR_USERNAME/freellmapi.git
 cd freellmapi-docker
 
 # 2. 配置环境变量（生成加密密钥）
