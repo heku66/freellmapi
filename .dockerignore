@@ -1,0 +1,34 @@
+# 依赖与构建产物
+node_modules/
+npm-debug.log*
+dist/
+build/
+.next/
+
+# 环境与敏感文件
+.env
+.env.local
+.env.*.local
+*.pem
+*.key
+
+# 版本控制与文档
+.git/
+.github/
+*.md
+LICENSE
+docs/
+
+# 系统与编辑器
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# 测试与临时文件
+coverage/
+*.log
+tmp/
+temp/
