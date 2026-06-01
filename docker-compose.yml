@@ -1,0 +1,68 @@
+version: '3.8'
+
+services:
+  freellmapi:
+    # 开发时本地构建，生产时替换为 GHCR 镜像
+    # image: ghcr.io/${GITHUB_USERNAME}/freellmapi-docker:latest
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: freellmapi
+    
+    # 端口映射：宿主机:容器
+    ports:
+      - "3001:3001"
+    
+    # 环境变量：优先使用 .env 文件，其次使用 environment 字段
+    env_file:
+      - .env
+    environment:
+      - PORT=3001
+      - NODE_ENV=production
+      # 敏感变量建议通过 docker secret 或外部注入
+    
+    # 重启策略：除非手动 stop，否则总是重启（等价于 systemd enable）
+    restart: unless-stopped
+    
+    # 健康检查（与 Dockerfile 中一致，compose 可覆盖）
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:3001/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    
+    # 数据持久化：挂载宿主机目录到容器
+    volumes:
+      # 数据库文件持久化（关键！避免容器删除后数据丢失）
+      - freellmapi_data:/opt/freellmapi/data
+      # 日志文件挂载（便于排查问题）
+      - freellmapi_logs:/opt/freellmapi/logs
+    
+    # 资源限制（可选，防止内存泄漏）
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+          cpus: '2'
+        reservations:
+          memory: 256M
+
+    # 网络配置
+    networks:
+      - freellmapi_net
+
+# 卷声明（自动创建）
+volumes:
+  freellmapi_data:
+    driver: local
+  freellmapi_logs:
+    driver: local
+
+# 网络声明
+networks:
+  freellmapi_net:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.20.0.0/24
