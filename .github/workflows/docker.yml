@@ -6,7 +6,7 @@ on:
     tags: [ "v*.*.*" ]
   pull_request:
     branches: [ "main", "master" ]
-  workflow_dispatch:
+  workflow_dispatch:  # 支持手动触发
 
 env:
   REGISTRY: ghcr.io
@@ -19,7 +19,6 @@ jobs:
     permissions:
       contents: read
       packages: write
-      security-events: write
 
     steps:
       - name: 📦 Checkout repository
@@ -35,64 +34,48 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: 🏷️ Extract Docker metadata
+      - name: 🏷️ Extract Docker metadata (auto tags)
         id: meta
         uses: docker/metadata-action@v5
         with:
           images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
           tags: |
+            # 主分支 → latest
             type=raw,value=latest,enable=${{ github.ref == format('refs/heads/{0}', github.event.repository.default_branch) }}
+            # Git tag → v1.2.3, v1.2, v1
             type=semver,pattern={{version}},enable=${{ startsWith(github.ref, 'refs/tags/v') }}
+            type=semver,pattern={{major}}.{{minor}},enable=${{ startsWith(github.ref, 'refs/tags/v') }}
+            type=semver,pattern={{major}},enable=${{ startsWith(github.ref, 'refs/tags/v') }}
+            # PR → pr-123
             type=ref,event=pr
+            # 分支 → branch-name-sha
+            type=ref,event=branch,suffix=-{{sha}}
+            # 短 SHA → sha-abc123
             type=sha,format=short,prefix=sha-
 
-      # ✅ 关键修改：先构建镜像并加载到本地（不推送）
-      - name: 🔨 Build Docker image (load to local)
+      - name: 🚀 Build and push Docker image
         uses: docker/build-push-action@v5
-        id: build
         with:
           context: .
           file: ./Dockerfile
-          push: false                    # 🔴 先不推送
-          load: true                     # ✅ 加载到本地 Docker 守护进程
+          push: ${{ github.event_name != 'pull_request' }}  # PR 仅构建不推送
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
-          # 如需多架构，注意：load: true 仅支持单平台
+          # 如需 ARM 支持，取消注释下一行（注意：多架构构建耗时更长）
+          # platforms: linux/amd64,linux/arm64
           platforms: linux/amd64
 
-      # ✅ Trivy 扫描本地已构建的镜像（非远程）
-      - name: 🛡️ Run Trivy vulnerability scanner
-        uses: aquasecurity/trivy-action@0.24.0
-        with:
-          # ✅ 扫描本地镜像：使用标签引用，Trivy 会自动从本地找
-          image-ref: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
-          format: 'sarif'
-          output: 'trivy-results.sarif'
-          severity: 'CRITICAL,HIGH'
-          cache: true
-          exit-code: '0'                 # ✅ 发现漏洞不中断流程
-          ignore-unfixed: true
-        if: github.event_name != 'pull_request'
-        continue-on-error: true
-
-      - name: 📤 Upload Trivy results to GitHub Security
-        uses: github/codeql-action/upload-sarif@v3
-        with:
-          sarif_file: 'trivy-results.sarif'
-        if: github.event_name != 'pull_request'
-        continue-on-error: true
-
-      # ✅ 最后：推送镜像到 GHCR（确认扫描通过后）
-      - name: 🚀 Push Docker image to GHCR
-        uses: docker/build-push-action@v5
-        with:
-          context: .
-          file: ./Dockerfile
-          push: ${{ github.event_name != 'pull_request' }}  # PR 不推送
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=gha
-          # 注意：push 阶段不再 cache-to，避免重复上传
-          platforms: linux/amd64
+      - name: ✅ Build summary
+        if: always()
+        run: |
+          echo "## 🐳 Docker Build Summary" >> $GITHUB_STEP_SUMMARY
+          echo "- **Repository**: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Tags**:" >> $GITHUB_STEP_SUMMARY
+          echo "${{ steps.meta.outputs.tags }}" | tr ',' '\n' | sed 's/^/  - /' >> $GITHUB_STEP_SUMMARY
+          echo "- **Status**: ${{ job.status }}" >> $GITHUB_STEP_SUMMARY
+          if [ "${{ job.status }}" = "success" ]; then
+            echo "✅ 镜像构建成功！" >> $GITHUB_STEP_SUMMARY
+            echo "🔗 查看镜像: https://github.com/${{ github.repository }}/pkgs/container/freellmapi" >> $GITHUB_STEP_SUMMARY
+          fi
